@@ -5,6 +5,10 @@ export default function Legend() {
     <div className="map-legend">
       <div className="legend-section">
         <div className="legend-item">
+          <span className="legend-swatch sfha-swatch" />
+          <span>1% Flood Zone (SFHA)</span>
+        </div>
+        <div className="legend-item">
           <span className="legend-swatch flood-swatch" />
           <span>0.2% Flood Zone</span>
         </div>

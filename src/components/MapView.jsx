@@ -82,17 +82,47 @@ export default function MapView({ onMapReady }) {
 
         if (controller.signal.aborted) return;
 
+        // Split flood zones into 1% (SFHA) and 0.2% categories
+        const sfhaFeatures = [];
+        const pct02Features = [];
+        for (const f of floodData.features) {
+          if (f.properties?.SFHA_TF === 'T') {
+            sfhaFeatures.push(f);
+          } else {
+            pct02Features.push(f);
+          }
+        }
+        const sfhaFC = { type: 'FeatureCollection', features: sfhaFeatures };
+        const pct02FC = { type: 'FeatureCollection', features: pct02Features };
+
+        // Tag each structure with its flood zone type
         let filteredInFlood;
         if (floodData.features.length && structureData.features?.length) {
-          const inFlood = structureData.features.filter((structure) =>
-            floodData.features.some((zone) => {
+          const inFlood = [];
+          for (const structure of structureData.features) {
+            let zoneType = null;
+            // Check 1% zones first (higher risk takes priority)
+            for (const zone of sfhaFeatures) {
               try {
-                return booleanPointInPolygon(structure, zone);
-              } catch {
-                return false;
+                if (booleanPointInPolygon(structure, zone)) { zoneType = '1pct'; break; }
+              } catch { /* skip */ }
+            }
+            // If not in 1%, check 0.2%
+            if (!zoneType) {
+              for (const zone of pct02Features) {
+                try {
+                  if (booleanPointInPolygon(structure, zone)) { zoneType = '0.2pct'; break; }
+                } catch { /* skip */ }
               }
-            })
-          );
+            }
+            if (zoneType) {
+              const tagged = {
+                ...structure,
+                properties: { ...structure.properties, _floodZone: zoneType },
+              };
+              inFlood.push(tagged);
+            }
+          }
           filteredInFlood = { type: 'FeatureCollection', features: inFlood };
         } else {
           filteredInFlood = EMPTY_FC;
@@ -102,8 +132,11 @@ export default function MapView({ onMapReady }) {
         dispatch({ type: 'SET_STRUCTURES', payload: filteredInFlood });
 
         const map = mapRef.current;
-        if (map?.getSource('flood-zones')) {
-          map.getSource('flood-zones').setData(floodData);
+        if (map?.getSource('flood-zones-1pct')) {
+          map.getSource('flood-zones-1pct').setData(sfhaFC);
+        }
+        if (map?.getSource('flood-zones-02pct')) {
+          map.getSource('flood-zones-02pct').setData(pct02FC);
         }
         if (map?.getSource('buildings')) {
           map.getSource('buildings').setData(filteredInFlood);
@@ -139,26 +172,36 @@ export default function MapView({ onMapReady }) {
     map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
     map.on('load', () => {
-      // Flood zone layers
-      map.addSource('flood-zones', { type: 'geojson', data: EMPTY_FC });
+      // Flood zone layers — separate sources for 1% and 0.2%
+      map.addSource('flood-zones-1pct', { type: 'geojson', data: EMPTY_FC });
+      map.addSource('flood-zones-02pct', { type: 'geojson', data: EMPTY_FC });
+
+      // 1% SFHA zones (blue — FEMA high-risk)
       map.addLayer({
-        id: 'flood-zones-fill',
+        id: 'flood-1pct-fill',
         type: 'fill',
-        source: 'flood-zones',
-        paint: {
-          'fill-color': '#ff6b35',
-          'fill-opacity': 0.25,
-        },
+        source: 'flood-zones-1pct',
+        paint: { 'fill-color': '#2979ff', 'fill-opacity': 0.25 },
       });
       map.addLayer({
-        id: 'flood-zones-outline',
+        id: 'flood-1pct-outline',
         type: 'line',
-        source: 'flood-zones',
-        paint: {
-          'line-color': '#ff6b35',
-          'line-width': 1.5,
-          'line-opacity': 0.6,
-        },
+        source: 'flood-zones-1pct',
+        paint: { 'line-color': '#2979ff', 'line-width': 1.5, 'line-opacity': 0.6 },
+      });
+
+      // 0.2% zones (orange — FEMA moderate risk)
+      map.addLayer({
+        id: 'flood-02pct-fill',
+        type: 'fill',
+        source: 'flood-zones-02pct',
+        paint: { 'fill-color': '#ff6b35', 'fill-opacity': 0.25 },
+      });
+      map.addLayer({
+        id: 'flood-02pct-outline',
+        type: 'line',
+        source: 'flood-zones-02pct',
+        paint: { 'line-color': '#ff6b35', 'line-width': 1.5, 'line-opacity': 0.6 },
       });
 
       // Buildings source with clustering
@@ -294,8 +337,11 @@ export default function MapView({ onMapReady }) {
         loadData(map.getBounds());
       } else {
         dispatch({ type: 'CLEAR_DATA' });
-        if (map.getSource('flood-zones')) {
-          map.getSource('flood-zones').setData(EMPTY_FC);
+        if (map.getSource('flood-zones-1pct')) {
+          map.getSource('flood-zones-1pct').setData(EMPTY_FC);
+        }
+        if (map.getSource('flood-zones-02pct')) {
+          map.getSource('flood-zones-02pct').setData(EMPTY_FC);
         }
         if (map.getSource('buildings')) {
           map.getSource('buildings').setData(EMPTY_FC);

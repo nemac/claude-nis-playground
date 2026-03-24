@@ -36,6 +36,42 @@ export default function StatsPanel() {
       </div>
 
       <div className="stat-section">
+        <h4>Structures by Flood Zone</h4>
+        <div className="type-bar-row">
+          <div className="type-bar-label">
+            <span className="type-dot" style={{ background: '#2979ff' }} />
+            <span>1% (SFHA)</span>
+          </div>
+          <div className="type-bar-wrapper">
+            <div
+              className="type-bar"
+              style={{
+                width: `${stats.total ? (stats.inSfha / stats.total) * 100 : 0}%`,
+                background: '#2979ff',
+              }}
+            />
+          </div>
+          <span className="type-bar-count">{formatNumber(stats.inSfha)}</span>
+        </div>
+        <div className="type-bar-row">
+          <div className="type-bar-label">
+            <span className="type-dot" style={{ background: '#ff6b35' }} />
+            <span>0.2%</span>
+          </div>
+          <div className="type-bar-wrapper">
+            <div
+              className="type-bar"
+              style={{
+                width: `${stats.total ? (stats.in02pct / stats.total) * 100 : 0}%`,
+                background: '#ff6b35',
+              }}
+            />
+          </div>
+          <span className="type-bar-count">{formatNumber(stats.in02pct)}</span>
+        </div>
+      </div>
+
+      <div className="stat-section">
         <h4>Population Exposure</h4>
         <div className="stat-row">
           <span>Total Estimated Population</span>

@@ -25,7 +25,7 @@ export default function Sidebar() {
             </div>
             <p>Zoom in to explore flood data</p>
             <span className="sidebar-hint">
-              Zoom to street level (zoom 14+) to load 0.2% flood zones and structures
+              Zoom to street level (zoom 14+) to load flood zones and structures
             </span>
           </div>
         )}

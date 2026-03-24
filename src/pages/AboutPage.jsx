@@ -13,10 +13,11 @@ export default function AboutPage({ onClose }) {
           <section>
             <h3>What is this tool?</h3>
             <p>
-              Flood Plain Explorer is an interactive map application that visualizes the
-              0.2% annual chance (500-year) flood plain across the United States and shows
-              what buildings are located within those flood zones. It helps communities,
-              planners, and individuals understand flood risk exposure.
+              Flood Plain Explorer is an interactive map application that visualizes both the
+              1% annual chance (100-year) Special Flood Hazard Area and the 0.2% annual chance
+              (500-year) flood plain across the United States, showing what buildings are
+              located within those flood zones. It helps communities, planners, and individuals
+              understand flood risk exposure.
             </p>
           </section>
 
@@ -27,9 +28,10 @@ export default function AboutPage({ onClose }) {
                 <h4>FEMA National Flood Hazard Layer (NFHL)</h4>
                 <p>
                   Flood zone boundaries are sourced from FEMA&apos;s National Flood Hazard
-                  Layer, served via Esri&apos;s ArcGIS Online. This data represents the
-                  0.2% annual chance flood zone (Zone X with &ldquo;0.2 PCT ANNUAL CHANCE
-                  FLOOD HAZARD&rdquo; subtype).
+                  Layer, served via Esri&apos;s ArcGIS Online. This includes the 1% annual
+                  chance Special Flood Hazard Area (SFHA — zones A, AE, V, VE) shown in
+                  blue, and the 0.2% annual chance flood zone (Zone X shaded) shown in
+                  orange.
                 </p>
               </div>
               <div className="about-source">
@@ -55,7 +57,7 @@ export default function AboutPage({ onClose }) {
             <ol>
               <li>Search for a location using the search bar, or pan/zoom the map</li>
               <li>Zoom in to street level (zoom 14+) to load flood and building data</li>
-              <li>Orange highlighted areas show the 0.2% annual chance flood zone</li>
+              <li>Blue areas show 1% (SFHA) flood zones; orange areas show 0.2% flood zones</li>
               <li>Colored dots represent buildings within the flood zone</li>
               <li>Click a building on the map or in the sidebar list for details</li>
               <li>Use filters to narrow down buildings by type, value, or stories</li>

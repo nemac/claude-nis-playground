@@ -8,6 +8,18 @@ import {
 } from '../utils/buildingTypes';
 import { formatCurrency, formatNumber, formatElevation, formatSquareFeet } from '../utils/format';
 
+function formatFloodZone(zone) {
+  if (zone === '1pct') return '1% (SFHA — High Risk)';
+  if (zone === '0.2pct') return '0.2% (Moderate Risk)';
+  return 'Unknown';
+}
+
+function floodZoneColor(zone) {
+  if (zone === '1pct') return '#2979ff';
+  if (zone === '0.2pct') return '#ff6b35';
+  return '#8b949e';
+}
+
 export default function BuildingDetail() {
   const { state, dispatch } = useContext(AppContext);
   const building = state.selectedBuilding;
@@ -35,6 +47,15 @@ export default function BuildingDetail() {
       <div className="detail-category">
         {getCategoryLabel(p.st_damcat)}
       </div>
+
+      {p._floodZone && (
+        <div className="detail-zone-badge" style={{
+          color: floodZoneColor(p._floodZone),
+          borderColor: floodZoneColor(p._floodZone),
+        }}>
+          {formatFloodZone(p._floodZone)}
+        </div>
+      )}
 
       <div className="detail-grid">
         <DetailRow label="Structural Value" value={formatCurrency(p.val_struct)} />

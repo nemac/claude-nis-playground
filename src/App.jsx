@@ -19,7 +19,7 @@ export default function App() {
             </span>
             Flood Plain Explorer
           </h1>
-          <span className="header-badge">0.2% Annual Chance</span>
+          <span className="header-badge">SFHA &amp; 0.2% Zones</span>
         </div>
         <div className="header-right">
           <PrintButton />

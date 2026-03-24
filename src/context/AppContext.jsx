@@ -87,6 +87,8 @@ export function AppProvider({ children }) {
     if (!features.length) {
       return {
         total: 0,
+        inSfha: 0,
+        in02pct: 0,
         byType: {},
         totalStructValue: 0,
         totalContValue: 0,
@@ -111,9 +113,14 @@ export function AppProvider({ children }) {
     let popOver65 = 0;
     let totalFoundHt = 0;
     let foundHtCount = 0;
+    let inSfha = 0;
+    let in02pct = 0;
 
     for (const f of features) {
       const p = f.properties;
+
+      if (p._floodZone === '1pct') inSfha++;
+      else if (p._floodZone === '0.2pct') in02pct++;
 
       const cat = p.st_damcat || 'OTHER';
       byType[cat] = (byType[cat] || 0) + 1;
@@ -149,6 +156,8 @@ export function AppProvider({ children }) {
 
     return {
       total: features.length,
+      inSfha,
+      in02pct,
       byType,
       totalStructValue,
       totalContValue,

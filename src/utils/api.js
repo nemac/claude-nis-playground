@@ -34,7 +34,7 @@ export async function fetchFloodZones(bounds) {
 
   while (hasMore) {
     const params = new URLSearchParams({
-      where: "ZONE_SUBTY LIKE '0.2%'",
+      where: "SFHA_TF = 'T' OR ZONE_SUBTY LIKE '0.2%'",
       geometry,
       geometryType: 'esriGeometryEnvelope',
       spatialRel: 'esriSpatialRelIntersects',
