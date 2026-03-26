@@ -2,7 +2,7 @@ import { useEffect, useRef, useContext, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { AppContext } from '../context/AppContext';
-import { fetchFloodZones, fetchStructures, fetchCountyBoundary } from '../utils/api';
+import { fetchFloodZones, fetchStructures, fetchCountyBoundary, splitBoundsIntoTiles } from '../utils/api';
 import { buildMapColorExpression } from '../utils/buildingTypes';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
 import * as turf from '@turf/turf';
@@ -58,82 +58,119 @@ export default function MapView({ onMapReady }) {
   const abortRef = useRef(null);
   const { state, dispatch, filteredStructures } = useContext(AppContext);
 
-  const loadData = useCallback(
+  // Process point-in-polygon in batches, yielding to event loop
+  const tagStructuresInFlood = useCallback(async (structures, sfhaFeatures, pct02Features, signal) => {
+    const inFlood = [];
+    const BATCH = 500;
+    for (let i = 0; i < structures.length; i++) {
+      if (signal.aborted) return inFlood;
+      const structure = structures[i];
+      let zoneType = null;
+      for (const zone of sfhaFeatures) {
+        try {
+          if (booleanPointInPolygon(structure, zone)) { zoneType = '1pct'; break; }
+        } catch { /* skip */ }
+      }
+      if (!zoneType) {
+        for (const zone of pct02Features) {
+          try {
+            if (booleanPointInPolygon(structure, zone)) { zoneType = '0.2pct'; break; }
+          } catch { /* skip */ }
+        }
+      }
+      if (zoneType) {
+        inFlood.push({
+          ...structure,
+          properties: { ...structure.properties, _floodZone: zoneType },
+        });
+      }
+      // Yield every BATCH structures to keep UI responsive
+      if ((i + 1) % BATCH === 0) {
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+    return inFlood;
+  }, []);
+
+  const loadDataChunked = useCallback(
     async (bounds) => {
       if (abortRef.current) abortRef.current.abort();
       const controller = new AbortController();
       abortRef.current = controller;
 
+      const tiles = splitBoundsIntoTiles(bounds);
+      const totalTiles = tiles.length;
+
       dispatch({ type: 'SET_LOADING', payload: { flood: true, structures: true } });
       dispatch({ type: 'SET_ERROR', payload: null });
+      dispatch({ type: 'SET_PROGRESS', payload: { current: 0, total: totalTiles } });
+
+      // Accumulators for incremental results
+      const allSfha = [];
+      const allPct02 = [];
+      const allInFlood = [];
 
       try {
-        const [floodData, structureData] = await Promise.all([
-          fetchFloodZones(bounds),
-          fetchStructures(bounds),
-        ]);
+        for (let i = 0; i < totalTiles; i++) {
+          if (controller.signal.aborted) return;
+
+          dispatch({ type: 'SET_PROGRESS', payload: { current: i + 1 } });
+
+          // Fetch flood zones and structures for this tile in parallel
+          const [floodData, structureData] = await Promise.all([
+            fetchFloodZones(tiles[i]),
+            fetchStructures(tiles[i]),
+          ]);
+
+          if (controller.signal.aborted) return;
+
+          // Split flood zones for this tile
+          const tileSfha = [];
+          const tilePct02 = [];
+          for (const f of floodData.features) {
+            if (f.properties?.SFHA_TF === 'T') {
+              tileSfha.push(f);
+            } else {
+              tilePct02.push(f);
+            }
+          }
+
+          // Tag structures in flood zones for this tile
+          if (floodData.features.length && structureData.features?.length) {
+            const tileInFlood = await tagStructuresInFlood(
+              structureData.features, tileSfha, tilePct02, controller.signal
+            );
+            if (controller.signal.aborted) return;
+            allInFlood.push(...tileInFlood);
+          }
+
+          allSfha.push(...tileSfha);
+          allPct02.push(...tilePct02);
+
+          // Update map sources incrementally
+          const map = mapRef.current;
+          if (map) {
+            const sfhaFC = { type: 'FeatureCollection', features: allSfha };
+            const pct02FC = { type: 'FeatureCollection', features: allPct02 };
+            const buildingsFC = { type: 'FeatureCollection', features: allInFlood };
+
+            if (map.getSource('flood-zones-1pct')) map.getSource('flood-zones-1pct').setData(sfhaFC);
+            if (map.getSource('flood-zones-02pct')) map.getSource('flood-zones-02pct').setData(pct02FC);
+            if (map.getSource('buildings')) map.getSource('buildings').setData(buildingsFC);
+          }
+
+          // Yield to event loop between tiles
+          await new Promise((r) => setTimeout(r, 0));
+        }
 
         if (controller.signal.aborted) return;
 
-        // Split flood zones into 1% (SFHA) and 0.2% categories
-        const sfhaFeatures = [];
-        const pct02Features = [];
-        for (const f of floodData.features) {
-          if (f.properties?.SFHA_TF === 'T') {
-            sfhaFeatures.push(f);
-          } else {
-            pct02Features.push(f);
-          }
-        }
-        const sfhaFC = { type: 'FeatureCollection', features: sfhaFeatures };
-        const pct02FC = { type: 'FeatureCollection', features: pct02Features };
+        // Final dispatch with complete data
+        const allFlood = { type: 'FeatureCollection', features: [...allSfha, ...allPct02] };
+        const allBuildings = { type: 'FeatureCollection', features: allInFlood };
 
-        // Tag each structure with its flood zone type
-        let filteredInFlood;
-        if (floodData.features.length && structureData.features?.length) {
-          const inFlood = [];
-          for (const structure of structureData.features) {
-            let zoneType = null;
-            // Check 1% zones first (higher risk takes priority)
-            for (const zone of sfhaFeatures) {
-              try {
-                if (booleanPointInPolygon(structure, zone)) { zoneType = '1pct'; break; }
-              } catch { /* skip */ }
-            }
-            // If not in 1%, check 0.2%
-            if (!zoneType) {
-              for (const zone of pct02Features) {
-                try {
-                  if (booleanPointInPolygon(structure, zone)) { zoneType = '0.2pct'; break; }
-                } catch { /* skip */ }
-              }
-            }
-            if (zoneType) {
-              const tagged = {
-                ...structure,
-                properties: { ...structure.properties, _floodZone: zoneType },
-              };
-              inFlood.push(tagged);
-            }
-          }
-          filteredInFlood = { type: 'FeatureCollection', features: inFlood };
-        } else {
-          filteredInFlood = EMPTY_FC;
-        }
-
-        dispatch({ type: 'SET_FLOOD_DATA', payload: floodData });
-        dispatch({ type: 'SET_STRUCTURES', payload: filteredInFlood });
-
-        const map = mapRef.current;
-        if (map?.getSource('flood-zones-1pct')) {
-          map.getSource('flood-zones-1pct').setData(sfhaFC);
-        }
-        if (map?.getSource('flood-zones-02pct')) {
-          map.getSource('flood-zones-02pct').setData(pct02FC);
-        }
-        if (map?.getSource('buildings')) {
-          map.getSource('buildings').setData(filteredInFlood);
-        }
+        dispatch({ type: 'SET_FLOOD_DATA', payload: allFlood });
+        dispatch({ type: 'SET_STRUCTURES', payload: allBuildings });
       } catch (err) {
         if (!controller.signal.aborted) {
           console.error('Error loading data:', err);
@@ -142,10 +179,11 @@ export default function MapView({ onMapReady }) {
       } finally {
         if (!controller.signal.aborted) {
           dispatch({ type: 'SET_LOADING', payload: { flood: false, structures: false } });
+          dispatch({ type: 'SET_PROGRESS', payload: { current: 0, total: 0 } });
         }
       }
     },
-    [dispatch]
+    [dispatch, tagStructuresInFlood]
   );
 
   // Initialize map
@@ -388,8 +426,8 @@ export default function MapView({ onMapReady }) {
           duration: 1500,
         });
 
-        // Load flood zones and structures for county bbox
-        loadData({ west, south, east, north });
+        // Load flood zones and structures for county bbox (chunked)
+        loadDataChunked({ west, south, east, north });
       } catch (err) {
         if (!cancelled) {
           console.error('Error loading county data:', err);
@@ -406,7 +444,7 @@ export default function MapView({ onMapReady }) {
     }
 
     return () => { cancelled = true; };
-  }, [state.selectedCounty, loadData, dispatch]);
+  }, [state.selectedCounty, loadDataChunked, dispatch]);
 
   // Update building source when filtered structures change
   useEffect(() => {

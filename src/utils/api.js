@@ -125,6 +125,41 @@ export async function fetchCountyList() {
   return allCounties;
 }
 
+// Split a bounding box into a grid of smaller tiles
+export function splitBoundsIntoTiles(bounds) {
+  const spanLng = bounds.east - bounds.west;
+  const spanLat = bounds.north - bounds.south;
+  const maxSpan = Math.max(spanLng, spanLat);
+
+  let cols, rows;
+  if (maxSpan < 0.3) {
+    cols = 1; rows = 1;
+  } else if (maxSpan < 1.0) {
+    cols = 2; rows = 2;
+  } else if (maxSpan < 2.0) {
+    cols = 3; rows = 3;
+  } else {
+    cols = 4; rows = 4;
+  }
+
+  const tileLng = spanLng / cols;
+  const tileLat = spanLat / rows;
+  const tiles = [];
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      tiles.push({
+        west: bounds.west + c * tileLng,
+        south: bounds.south + r * tileLat,
+        east: bounds.west + (c + 1) * tileLng,
+        north: bounds.south + (r + 1) * tileLat,
+      });
+    }
+  }
+
+  return tiles;
+}
+
 export async function fetchCountyBoundary(fips) {
   const params = new URLSearchParams({
     where: `FIPS='${fips}'`,

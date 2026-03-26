@@ -16,6 +16,7 @@ const initialState = {
   },
   selectedBuilding: null,
   loading: { flood: false, structures: false, counties: false },
+  progress: { current: 0, total: 0 },
   error: null,
   showAbout: false,
   zoom: 4,
@@ -33,7 +34,10 @@ function reducer(state, action) {
         allStructures: null,
         selectedBuilding: null,
         error: null,
+        progress: { current: 0, total: 0 },
       };
+    case 'SET_PROGRESS':
+      return { ...state, progress: { ...state.progress, ...action.payload } };
     case 'SET_FLOOD_DATA':
       return { ...state, floodZones: action.payload };
     case 'SET_STRUCTURES':
