@@ -10,22 +10,21 @@ import EducationalPanel from './EducationalPanel';
 export default function Sidebar() {
   const { state, stats } = useContext(AppContext);
 
+  const noCounty = !state.selectedCounty;
+
   return (
     <aside className="sidebar">
       <div className="sidebar-scroll">
-        {state.needsZoom && (
+        {noCounty && (
           <div className="sidebar-message">
             <div className="zoom-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" width="32" height="32">
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
-                <line x1="11" y1="8" x2="11" y2="14" />
-                <line x1="8" y1="11" x2="14" y2="11" />
+                <path d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" />
               </svg>
             </div>
-            <p>Zoom in to explore flood data</p>
+            <p>Select a county to begin analysis</p>
             <span className="sidebar-hint">
-              Zoom to street level (zoom 14+) to load flood zones and structures
+              Use the dropdown above the map to choose a US county or parish
             </span>
           </div>
         )}
@@ -37,11 +36,11 @@ export default function Sidebar() {
           </div>
         )}
 
-        {!state.needsZoom && !state.loading.flood && !state.loading.structures && stats.total === 0 && !state.error && (
+        {!noCounty && !state.loading.flood && !state.loading.structures && stats.total === 0 && !state.error && (
           <div className="sidebar-message">
-            <p>No structures found in the 0.2% flood zone for this area</p>
+            <p>No structures found in flood zones for {state.selectedCounty.name}, {state.selectedCounty.state}</p>
             <span className="sidebar-hint">
-              Try panning to a different location or zooming to a floodplain area
+              This county may not have mapped flood zones or structures in the flood plain
             </span>
           </div>
         )}

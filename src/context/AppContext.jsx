@@ -3,6 +3,8 @@ import { createContext, useReducer, useMemo } from 'react';
 export const AppContext = createContext(null);
 
 const initialState = {
+  counties: [],
+  selectedCounty: null,
   floodZones: null,
   allStructures: null,
   filters: {
@@ -13,15 +15,25 @@ const initialState = {
     maxStories: null,
   },
   selectedBuilding: null,
-  loading: { flood: false, structures: false },
+  loading: { flood: false, structures: false, counties: false },
   error: null,
   showAbout: false,
   zoom: 4,
-  needsZoom: true,
 };
 
 function reducer(state, action) {
   switch (action.type) {
+    case 'SET_COUNTIES':
+      return { ...state, counties: action.payload };
+    case 'SET_COUNTY':
+      return {
+        ...state,
+        selectedCounty: action.payload,
+        floodZones: null,
+        allStructures: null,
+        selectedBuilding: null,
+        error: null,
+      };
     case 'SET_FLOOD_DATA':
       return { ...state, floodZones: action.payload };
     case 'SET_STRUCTURES':
@@ -39,14 +51,13 @@ function reducer(state, action) {
     case 'TOGGLE_ABOUT':
       return { ...state, showAbout: !state.showAbout };
     case 'SET_ZOOM':
-      return { ...state, zoom: action.payload, needsZoom: action.payload < 14 };
+      return { ...state, zoom: action.payload };
     case 'CLEAR_DATA':
       return {
         ...state,
         floodZones: null,
         allStructures: null,
         selectedBuilding: null,
-        needsZoom: true,
       };
     default:
       return state;

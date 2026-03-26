@@ -1,9 +1,13 @@
 const isDev = import.meta.env.DEV;
 
 // AGOL supports CORS natively — use direct in production, proxy in dev
-const AGOL_BASE = isDev
+const AGOL_FLOOD_BASE = isDev
   ? '/agol/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Flood_Hazard_Reduced_Set_gdb/FeatureServer/0/query'
   : 'https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Flood_Hazard_Reduced_Set_gdb/FeatureServer/0/query';
+
+const AGOL_COUNTY_BASE = isDev
+  ? '/agol/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Counties_Generalized_Boundaries/FeatureServer/0/query'
+  : 'https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/USA_Counties_Generalized_Boundaries/FeatureServer/0/query';
 
 // NSI does NOT support CORS — needs proxy in all browser environments
 // Set VITE_NSI_PROXY_URL env var to your Cloudflare Worker (see worker/nsi-proxy.js)
@@ -16,8 +20,6 @@ function buildNsiUrl(path) {
   // Fallback CORS proxy for quick testing (rate-limited)
   return `https://corsproxy.io/?url=${encodeURIComponent(`https://nsi.sec.usace.army.mil/nsiapi/${path}`)}`;
 }
-
-const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org/search';
 
 export async function fetchFloodZones(bounds) {
   const geometry = JSON.stringify({
@@ -45,7 +47,7 @@ export async function fetchFloodZones(bounds) {
       resultOffset: String(offset),
     });
 
-    const resp = await fetch(`${AGOL_BASE}?${params}`);
+    const resp = await fetch(`${AGOL_FLOOD_BASE}?${params}`);
     if (!resp.ok) throw new Error(`AGOL API error: ${resp.status}`);
 
     const data = await resp.json();
@@ -56,8 +58,6 @@ export async function fetchFloodZones(bounds) {
 
     hasMore = data.properties?.exceededTransferLimit === true;
     offset += 2000;
-
-    if (offset > 10000) break;
   }
 
   return {
@@ -81,18 +81,59 @@ export async function fetchStructures(bounds) {
   return resp.json();
 }
 
-export async function geocodeSearch(query) {
+// County data from Esri Living Atlas (same AGOL domain — CORS works)
+let countyCache = null;
+
+export async function fetchCountyList() {
+  if (countyCache) return countyCache;
+
+  const allCounties = [];
+  let offset = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const params = new URLSearchParams({
+      where: '1=1',
+      outFields: 'FIPS,NAME,STATE_ABBR',
+      returnGeometry: 'false',
+      returnExtentOnly: 'false',
+      f: 'json',
+      resultRecordCount: '2000',
+      resultOffset: String(offset),
+      orderByFields: 'STATE_ABBR,NAME',
+    });
+
+    const resp = await fetch(`${AGOL_COUNTY_BASE}?${params}`);
+    if (!resp.ok) throw new Error(`County list API error: ${resp.status}`);
+
+    const data = await resp.json();
+    if (data.features) {
+      for (const f of data.features) {
+        allCounties.push({
+          fips: f.attributes.FIPS,
+          name: f.attributes.NAME,
+          state: f.attributes.STATE_ABBR,
+        });
+      }
+    }
+
+    hasMore = data.exceededTransferLimit === true;
+    offset += 2000;
+  }
+
+  countyCache = allCounties;
+  return allCounties;
+}
+
+export async function fetchCountyBoundary(fips) {
   const params = new URLSearchParams({
-    q: query,
-    format: 'json',
-    countrycodes: 'us',
-    limit: '5',
-    addressdetails: '1',
+    where: `FIPS='${fips}'`,
+    outFields: 'FIPS,NAME,STATE_ABBR',
+    returnGeometry: 'true',
+    f: 'geojson',
   });
 
-  const resp = await fetch(`${NOMINATIM_BASE}?${params}`, {
-    headers: { 'User-Agent': 'FloodPlainExplorer/1.0' },
-  });
-  if (!resp.ok) throw new Error(`Geocoding error: ${resp.status}`);
+  const resp = await fetch(`${AGOL_COUNTY_BASE}?${params}`);
+  if (!resp.ok) throw new Error(`County boundary API error: ${resp.status}`);
   return resp.json();
 }

@@ -2,11 +2,11 @@ import { useEffect, useRef, useContext, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { AppContext } from '../context/AppContext';
-import { fetchFloodZones, fetchStructures } from '../utils/api';
+import { fetchFloodZones, fetchStructures, fetchCountyBoundary } from '../utils/api';
 import { buildMapColorExpression } from '../utils/buildingTypes';
 import booleanPointInPolygon from '@turf/boolean-point-in-polygon';
+import * as turf from '@turf/turf';
 
-const MIN_ZOOM = 14;
 const EMPTY_FC = { type: 'FeatureCollection', features: [] };
 
 const MAP_STYLE = {
@@ -67,17 +67,10 @@ export default function MapView({ onMapReady }) {
       dispatch({ type: 'SET_LOADING', payload: { flood: true, structures: true } });
       dispatch({ type: 'SET_ERROR', payload: null });
 
-      const boundsObj = {
-        west: bounds.getWest(),
-        south: bounds.getSouth(),
-        east: bounds.getEast(),
-        north: bounds.getNorth(),
-      };
-
       try {
         const [floodData, structureData] = await Promise.all([
-          fetchFloodZones(boundsObj),
-          fetchStructures(boundsObj),
+          fetchFloodZones(bounds),
+          fetchStructures(bounds),
         ]);
 
         if (controller.signal.aborted) return;
@@ -172,6 +165,21 @@ export default function MapView({ onMapReady }) {
     map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
     map.on('load', () => {
+      // County boundary layer
+      map.addSource('county-boundary', { type: 'geojson', data: EMPTY_FC });
+      map.addLayer({
+        id: 'county-boundary-fill',
+        type: 'fill',
+        source: 'county-boundary',
+        paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.03 },
+      });
+      map.addLayer({
+        id: 'county-boundary-outline',
+        type: 'line',
+        source: 'county-boundary',
+        paint: { 'line-color': '#e6edf3', 'line-width': 2, 'line-opacity': 0.7, 'line-dasharray': [4, 2] },
+      });
+
       // Flood zone layers — separate sources for 1% and 0.2%
       map.addSource('flood-zones-1pct', { type: 'geojson', data: EMPTY_FC });
       map.addSource('flood-zones-02pct', { type: 'geojson', data: EMPTY_FC });
@@ -318,38 +326,18 @@ export default function MapView({ onMapReady }) {
         map.getCanvas().style.cursor = '';
       });
 
-      // Initial data load if zoomed in
       dispatch({ type: 'SET_ZOOM', payload: map.getZoom() });
-      if (map.getZoom() >= MIN_ZOOM) {
-        loadData(map.getBounds());
-      }
     });
 
-    // Handle map movement
-    const handleMove = debounce(() => {
+    // Update hash on map movement
+    const updateHash = debounce(() => {
       const zoom = map.getZoom();
       const center = map.getCenter();
       dispatch({ type: 'SET_ZOOM', payload: zoom });
-
       window.location.hash = `${zoom.toFixed(1)}/${center.lat.toFixed(4)}/${center.lng.toFixed(4)}`;
-
-      if (zoom >= MIN_ZOOM) {
-        loadData(map.getBounds());
-      } else {
-        dispatch({ type: 'CLEAR_DATA' });
-        if (map.getSource('flood-zones-1pct')) {
-          map.getSource('flood-zones-1pct').setData(EMPTY_FC);
-        }
-        if (map.getSource('flood-zones-02pct')) {
-          map.getSource('flood-zones-02pct').setData(EMPTY_FC);
-        }
-        if (map.getSource('buildings')) {
-          map.getSource('buildings').setData(EMPTY_FC);
-        }
-      }
     }, 800);
 
-    map.on('moveend', handleMove);
+    map.on('moveend', updateHash);
 
     mapRef.current = map;
     if (onMapReady) onMapReady(map);
@@ -359,6 +347,66 @@ export default function MapView({ onMapReady }) {
       map.remove();
     };
   }, []);
+
+  // Load data when selected county changes
+  useEffect(() => {
+    const map = mapRef.current;
+    const county = state.selectedCounty;
+    if (!map || !county) {
+      // Clear data if no county selected
+      if (map) {
+        try {
+          if (map.getSource('county-boundary')) map.getSource('county-boundary').setData(EMPTY_FC);
+          if (map.getSource('flood-zones-1pct')) map.getSource('flood-zones-1pct').setData(EMPTY_FC);
+          if (map.getSource('flood-zones-02pct')) map.getSource('flood-zones-02pct').setData(EMPTY_FC);
+          if (map.getSource('buildings')) map.getSource('buildings').setData(EMPTY_FC);
+        } catch { /* sources not ready */ }
+      }
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadCountyData() {
+      try {
+        // Fetch county boundary geometry
+        const boundaryFC = await fetchCountyBoundary(county.fips);
+        if (cancelled || !boundaryFC.features?.length) return;
+
+        // Display county boundary on map
+        if (map.getSource('county-boundary')) {
+          map.getSource('county-boundary').setData(boundaryFC);
+        }
+
+        // Compute bbox from boundary geometry
+        const bbox = turf.bbox(boundaryFC);
+        const [west, south, east, north] = bbox;
+
+        // Zoom to county
+        map.fitBounds([[west, south], [east, north]], {
+          padding: 40,
+          duration: 1500,
+        });
+
+        // Load flood zones and structures for county bbox
+        loadData({ west, south, east, north });
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Error loading county data:', err);
+          dispatch({ type: 'SET_ERROR', payload: err.message });
+        }
+      }
+    }
+
+    // Wait for map to be loaded before trying to set sources
+    if (map.loaded()) {
+      loadCountyData();
+    } else {
+      map.on('load', loadCountyData);
+    }
+
+    return () => { cancelled = true; };
+  }, [state.selectedCounty, loadData, dispatch]);
 
   // Update building source when filtered structures change
   useEffect(() => {
