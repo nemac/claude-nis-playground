@@ -125,22 +125,16 @@ export async function fetchCountyList() {
   return allCounties;
 }
 
-// Split a bounding box into a grid of smaller tiles
+// Split a bounding box into a grid of smaller tiles.
+// Uses a fixed target tile size (~0.1°) so each API request stays fast.
+const TARGET_TILE_DEG = 0.1;
+
 export function splitBoundsIntoTiles(bounds) {
   const spanLng = bounds.east - bounds.west;
   const spanLat = bounds.north - bounds.south;
-  const maxSpan = Math.max(spanLng, spanLat);
 
-  let cols, rows;
-  if (maxSpan < 0.3) {
-    cols = 1; rows = 1;
-  } else if (maxSpan < 1.0) {
-    cols = 2; rows = 2;
-  } else if (maxSpan < 2.0) {
-    cols = 3; rows = 3;
-  } else {
-    cols = 4; rows = 4;
-  }
+  const cols = Math.max(1, Math.ceil(spanLng / TARGET_TILE_DEG));
+  const rows = Math.max(1, Math.ceil(spanLat / TARGET_TILE_DEG));
 
   const tileLng = spanLng / cols;
   const tileLat = spanLat / rows;
