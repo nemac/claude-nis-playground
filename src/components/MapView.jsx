@@ -92,8 +92,40 @@ export default function MapView({ onMapReady }) {
     return inFlood;
   }, []);
 
+  // Clip flood zone polygons to the county boundary
+  const clipFloodToCounty = useCallback((floodFeatures, countyPolygon) => {
+    const clipped = [];
+    for (const f of floodFeatures) {
+      try {
+        const intersection = turf.intersect(
+          turf.featureCollection([f, countyPolygon])
+        );
+        if (intersection) {
+          intersection.properties = f.properties;
+          clipped.push(intersection);
+        }
+      } catch {
+        // If intersect fails (degenerate geometry), skip
+      }
+    }
+    return clipped;
+  }, []);
+
+  // Filter structures to only those inside the county boundary
+  const filterStructuresToCounty = useCallback((structures, countyPolygon) => {
+    const inside = [];
+    for (const s of structures) {
+      try {
+        if (booleanPointInPolygon(s, countyPolygon)) {
+          inside.push(s);
+        }
+      } catch { /* skip */ }
+    }
+    return inside;
+  }, []);
+
   const loadDataChunked = useCallback(
-    async (bounds) => {
+    async (bounds, countyPolygon) => {
       if (abortRef.current) abortRef.current.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -124,10 +156,18 @@ export default function MapView({ onMapReady }) {
 
           if (controller.signal.aborted) return;
 
-          // Split flood zones for this tile
+          // Clip flood zones to county boundary
+          const clippedFlood = clipFloodToCounty(floodData.features, countyPolygon);
+
+          // Filter structures to county boundary
+          const countyStructures = filterStructuresToCounty(
+            structureData.features || [], countyPolygon
+          );
+
+          // Split clipped flood zones for this tile
           const tileSfha = [];
           const tilePct02 = [];
-          for (const f of floodData.features) {
+          for (const f of clippedFlood) {
             if (f.properties?.SFHA_TF === 'T') {
               tileSfha.push(f);
             } else {
@@ -136,9 +176,9 @@ export default function MapView({ onMapReady }) {
           }
 
           // Tag structures in flood zones for this tile
-          if (floodData.features.length && structureData.features?.length) {
+          if (clippedFlood.length && countyStructures.length) {
             const tileInFlood = await tagStructuresInFlood(
-              structureData.features, tileSfha, tilePct02, controller.signal
+              countyStructures, tileSfha, tilePct02, controller.signal
             );
             if (controller.signal.aborted) return;
             allInFlood.push(...tileInFlood);
@@ -183,7 +223,7 @@ export default function MapView({ onMapReady }) {
         }
       }
     },
-    [dispatch, tagStructuresInFlood]
+    [dispatch, tagStructuresInFlood, clipFloodToCounty, filterStructuresToCounty]
   );
 
   // Initialize map
@@ -426,8 +466,10 @@ export default function MapView({ onMapReady }) {
           duration: 1500,
         });
 
-        // Load flood zones and structures for county bbox (chunked)
-        loadDataChunked({ west, south, east, north });
+        // Load flood zones and structures for county bbox (chunked),
+        // clipped to the county boundary polygon
+        const countyPolygon = boundaryFC.features[0];
+        loadDataChunked({ west, south, east, north }, countyPolygon);
       } catch (err) {
         if (!cancelled) {
           console.error('Error loading county data:', err);
